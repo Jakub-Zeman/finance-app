@@ -16,7 +16,13 @@ import {
   isCsasFormat,
   type ParsedCsasTransaction,
 } from "../../lib/csasParser";
-import type { Transaction } from "../../types";
+import {
+  extractPdfTransactions,
+  isPdfFile,
+  type PdfTransaction,
+} from "../../lib/pdfParser";
+import { detectCategory } from "../../lib/revolutParser";
+import type { Transaction, Category } from "../../types";
 import { Button } from "../ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "../ui/dialog";
 import { Upload, Download, CheckCircle, AlertCircle, Info, ChevronRight, ArrowLeft } from "lucide-react";
@@ -27,11 +33,86 @@ interface Props {
   onClose: () => void;
 }
 
-type ParsedRow = ParsedRevolutTransaction | ParsedCsasTransaction;
+interface ParsedPdfTransaction {
+  raw: PdfTransaction;
+  transaction: Omit<Transaction, "id">;
+  suggestedCategory: string;
+  skipped: boolean;
+  skipReason?: string;
+}
+
+type ParsedRow = ParsedRevolutTransaction | ParsedCsasTransaction | ParsedPdfTransaction;
 type Step = "upload" | "review" | "preview" | "success" | "error";
 
 // Categories that mean "we don't know what this is"
 const FALLBACK_CATEGORIES = ["Other Expense", "Other Income"];
+
+async function processPdfTransactions(
+  rows: PdfTransaction[],
+  categories: Category[]
+): Promise<ParsedPdfTransaction[]> {
+  const catByName = new Map(categories.map((c) => [c.name.toLowerCase(), c]));
+
+  function findCategoryId(name: string): number {
+    const cat = catByName.get(name.toLowerCase());
+    if (cat?.id) return cat.id;
+    const fallback = catByName.get("other expense") || catByName.get("other income");
+    return fallback?.id || categories[0]?.id || 1;
+  }
+
+  // Load user-defined category rules
+  const userRules = await db.categoryRules.toArray();
+
+  return rows.map((row) => {
+    const type: "income" | "expense" = row.amount >= 0 ? "income" : "expense";
+    const absAmount = Math.abs(row.amount);
+
+    if (absAmount === 0) {
+      return {
+        raw: row,
+        transaction: {} as Omit<Transaction, "id">,
+        suggestedCategory: "",
+        skipped: true,
+        skipReason: "Zero amount",
+      };
+    }
+
+    // 1. Check user-defined rules first
+    let suggestedCategory = "";
+    const descLower = row.description.toLowerCase();
+    for (const rule of userRules) {
+      if (descLower.includes(rule.pattern.toLowerCase())) {
+        const cat = categories.find((c) => c.id === rule.categoryId);
+        if (cat) {
+          suggestedCategory = cat.name;
+          break;
+        }
+      }
+    }
+
+    // 2. Fall back to keyword detection (reuses Revolut parser logic)
+    if (!suggestedCategory) {
+      suggestedCategory = detectCategory(row.description, "", row.amount);
+    }
+
+    const categoryId = findCategoryId(suggestedCategory);
+
+    return {
+      raw: row,
+      suggestedCategory,
+      skipped: false,
+      transaction: {
+        type,
+        amount: absAmount,
+        categoryId,
+        description: row.description,
+        date: row.date,
+        tags: ["česká-spořitelna", "pdf"],
+        notes: row.balance !== undefined ? `Balance: ${row.balance}` : "",
+      },
+    };
+  });
+}
 
 export function CSVImport({ open, onClose }: Props) {
   const { categories } = useCategoryStore();
@@ -72,44 +153,57 @@ export function CSVImport({ open, onClose }: Props) {
     setRememberSet(new Set());
 
     try {
-      const buffer = await file.arrayBuffer();
-      const uint8  = new Uint8Array(buffer);
-      const isUtf16 =
-        (uint8[0] === 0xFF && uint8[1] === 0xFE) ||
-        (uint8[1] === 0x00 && uint8[3] === 0x00);
-
       let result: ParsedRow[];
       let fmt: string;
 
-      if (isUtf16) {
-        const rows    = await parseCsasFile(file);
-        const headers = Object.keys(rows[0] || {});
-        if (!isCsasFormat(headers)) {
-          setErrorMsg("UTF-16 file detected but format not recognised.");
+      if (isPdfFile(file)) {
+        // PDF bank statement
+        const pdfRows = await extractPdfTransactions(file);
+        if (pdfRows.length === 0) {
+          setErrorMsg("No transactions found in PDF. Make sure it's a valid bank statement.");
           setStep("error");
           return;
         }
-        result = processCsasRows(rows, categories);
-        fmt    = "Česká spořitelna";
+        result = await processPdfTransactions(pdfRows, categories);
+        fmt = "PDF (Česká spořitelna)";
       } else {
-        const headerRow = await new Promise<string[]>((resolve) => {
-          Papa.parse<string[]>(file, {
-            preview: 1,
-            header: false,
-            complete: (r) => resolve((r.data[0] as string[]) || []),
-          });
-        });
+        // CSV handling
+        const buffer = await file.arrayBuffer();
+        const uint8  = new Uint8Array(buffer);
+        const isUtf16 =
+          (uint8[0] === 0xFF && uint8[1] === 0xFE) ||
+          (uint8[1] === 0x00 && uint8[3] === 0x00);
 
-        if (isRevolutFormat(headerRow)) {
-          result = processRevolutRows(await parseRevolutCSV(file), categories);
-          fmt    = "Revolut";
-        } else if (isCsasFormat(headerRow)) {
-          result = processCsasRows(await parseCsasFile(file), categories);
+        if (isUtf16) {
+          const rows    = await parseCsasFile(file);
+          const headers = Object.keys(rows[0] || {});
+          if (!isCsasFormat(headers)) {
+            setErrorMsg("UTF-16 file detected but format not recognised.");
+            setStep("error");
+            return;
+          }
+          result = processCsasRows(rows, categories);
           fmt    = "Česká spořitelna";
         } else {
-          setErrorMsg("Format not recognised. Supported: Revolut CSV, Česká spořitelna CSV.");
-          setStep("error");
-          return;
+          const headerRow = await new Promise<string[]>((resolve) => {
+            Papa.parse<string[]>(file, {
+              preview: 1,
+              header: false,
+              complete: (r) => resolve((r.data[0] as string[]) || []),
+            });
+          });
+
+          if (isRevolutFormat(headerRow)) {
+            result = processRevolutRows(await parseRevolutCSV(file), categories);
+            fmt    = "Revolut";
+          } else if (isCsasFormat(headerRow)) {
+            result = processCsasRows(await parseCsasFile(file), categories);
+            fmt    = "Česká spořitelna";
+          } else {
+            setErrorMsg("Format not recognised. Supported: Revolut CSV, Česká spořitelna CSV/PDF.");
+            setStep("error");
+            return;
+          }
         }
       }
 
@@ -121,7 +215,7 @@ export function CSVImport({ open, onClose }: Props) {
       setStep(needsReview.length > 0 ? "review" : "preview");
     } catch (err) {
       console.error(err);
-      setErrorMsg("Failed to parse file. Make sure it's a valid CSV export.");
+      setErrorMsg("Failed to parse file. Make sure it's a valid CSV or PDF export.");
       setStep("error");
     }
   }
@@ -224,7 +318,7 @@ export function CSVImport({ open, onClose }: Props) {
         <DialogHeader>
           <DialogTitle>Import Bank Statement</DialogTitle>
           <DialogDescription>
-            Auto-detects format · Supports Revolut and Česká spořitelna CSV exports
+            Auto-detects format · Supports Revolut CSV, Česká spořitelna CSV or PDF exports
           </DialogDescription>
         </DialogHeader>
 
@@ -256,7 +350,7 @@ export function CSVImport({ open, onClose }: Props) {
                   <Info className="h-4 w-4 text-green-500 mt-0.5 shrink-0" />
                   <div>
                     <p className="font-medium text-green-800">Česká spořitelna</p>
-                    <p className="text-xs text-green-600">Servis 24 → Výpisy → Export CSV</p>
+                    <p className="text-xs text-green-600">Servis 24 → Výpisy → Export CSV or PDF</p>
                   </div>
                 </div>
               </div>
@@ -268,13 +362,13 @@ export function CSVImport({ open, onClose }: Props) {
                 onClick={() => fileRef.current?.click()}
               >
                 <Upload className="h-10 w-10 mx-auto mb-3 text-muted-foreground" />
-                <p className="text-sm font-medium">Click to select your CSV file</p>
+                <p className="text-sm font-medium">Click to select your CSV or PDF file</p>
                 <p className="text-xs text-muted-foreground mt-1">Format is detected automatically</p>
               </div>
             </>
           )}
 
-          <input ref={fileRef} type="file" accept=".csv" className="hidden" onChange={handleFile} />
+          <input ref={fileRef} type="file" accept=".csv,.pdf" className="hidden" onChange={handleFile} />
 
           {/* ── ERROR ── */}
           {step === "error" && (
