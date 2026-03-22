@@ -10,6 +10,7 @@ import { Badge } from "../ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../ui/select";
 import { TransactionForm } from "./TransactionForm";
 import { CSVImport } from "./CSVImport";
+import { ConfirmDialog } from "../ui/confirm-dialog";
 import { Plus, Upload, Search, Pencil, Trash2 } from "lucide-react";
 
 export function TransactionsPage() {
@@ -28,6 +29,8 @@ export function TransactionsPage() {
   );
   const [filterMonth, setFilterMonth] = useState<string>("all");
   const [selected, setSelected] = useState<Set<number>>(new Set());
+  const [confirmBulk, setConfirmBulk] = useState(false);
+  const [confirmAll, setConfirmAll] = useState(false);
 
   useEffect(() => {
     fetchCategories();
@@ -90,15 +93,15 @@ export function TransactionsPage() {
   }
 
   async function handleBulkDelete() {
-    if (!window.confirm(`Delete ${selected.size} selected transaction(s)?`)) return;
     await bulkDeleteTransactions(Array.from(selected));
     setSelected(new Set());
+    setConfirmBulk(false);
   }
 
   async function handleDeleteAll() {
-    if (!window.confirm(`Delete ALL ${transactions.length} transactions? This cannot be undone.`)) return;
     await deleteAllTransactions();
     setSelected(new Set());
+    setConfirmAll(false);
   }
 
   function handleEdit(tx: Transaction) {
@@ -121,13 +124,13 @@ export function TransactionsPage() {
         </div>
         <div className="flex gap-2 flex-wrap">
           {someSelected && (
-            <Button variant="destructive" size="sm" onClick={handleBulkDelete} className="gap-1.5">
+            <Button variant="destructive" size="sm" onClick={() => setConfirmBulk(true)} className="gap-1.5">
               <Trash2 className="h-3.5 w-3.5" />
               Delete {selected.size}
             </Button>
           )}
           {transactions.length > 0 && (
-            <Button variant="outline" size="sm" onClick={handleDeleteAll} className="gap-1.5 border-destructive text-destructive hover:bg-destructive hover:text-destructive-foreground">
+            <Button variant="outline" size="sm" onClick={() => setConfirmAll(true)} className="gap-1.5 border-destructive text-destructive hover:bg-destructive hover:text-destructive-foreground">
               <Trash2 className="h-3.5 w-3.5" />
               Delete All
             </Button>
@@ -318,6 +321,25 @@ export function TransactionsPage() {
 
       <TransactionForm open={formOpen} onClose={() => { setFormOpen(false); setEditing(null); }} editing={editing} />
       <CSVImport open={csvOpen} onClose={() => setCsvOpen(false)} />
+
+      <ConfirmDialog
+        open={confirmBulk}
+        title={`Delete ${selected.size} transaction(s)?`}
+        description="This cannot be undone."
+        confirmLabel="Delete"
+        destructive
+        onConfirm={handleBulkDelete}
+        onCancel={() => setConfirmBulk(false)}
+      />
+      <ConfirmDialog
+        open={confirmAll}
+        title={`Delete all ${transactions.length} transactions?`}
+        description="This will permanently remove every transaction. This cannot be undone."
+        confirmLabel="Delete All"
+        destructive
+        onConfirm={handleDeleteAll}
+        onCancel={() => setConfirmAll(false)}
+      />
     </div>
   );
 }
