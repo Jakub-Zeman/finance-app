@@ -108,7 +108,7 @@ async function processPdfTransactions(
         description: row.description,
         date: row.date,
         tags: ["česká-spořitelna", "pdf"],
-        notes: row.balance !== undefined ? `Balance: ${row.balance}` : "",
+        notes: "",
       },
     };
   });
