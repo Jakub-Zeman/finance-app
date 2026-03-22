@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useTransactionStore } from "../../stores/useTransactionStore";
 import { useCategoryStore } from "../../stores/useCategoryStore";
+import { useAccountStore } from "../../stores/useAccountStore";
 import { formatCurrency, getCurrentMonth, getLast6Months, getMonthLabel } from "../../lib/utils";
 import { Card, CardContent, CardHeader, CardTitle } from "../ui/card";
 import { Button } from "../ui/button";
@@ -20,18 +21,21 @@ type FilterMode = "month" | "year" | "custom";
 export function DashboardPage() {
   const { transactions, fetchTransactions } = useTransactionStore();
   const { categories, fetchCategories }     = useCategoryStore();
+  const { accounts, fetchAccounts }         = useAccountStore();
   const [csvOpen, setCsvOpen] = useState(false);
 
   // Filter state
-  const [filterMode, setFilterMode]   = useState<FilterMode>("month");
-  const [filterMonth, setFilterMonth] = useState(getCurrentMonth());
-  const [filterYear, setFilterYear]   = useState(new Date().getFullYear().toString());
-  const [filterFrom, setFilterFrom]   = useState("");
-  const [filterTo, setFilterTo]       = useState("");
+  const [filterMode, setFilterMode]       = useState<FilterMode>("month");
+  const [filterMonth, setFilterMonth]     = useState(getCurrentMonth());
+  const [filterYear, setFilterYear]       = useState(new Date().getFullYear().toString());
+  const [filterFrom, setFilterFrom]       = useState("");
+  const [filterTo, setFilterTo]           = useState("");
+  const [filterAccount, setFilterAccount] = useState<string>("all");
 
   useEffect(() => {
     fetchCategories();
     fetchTransactions();
+    fetchAccounts();
   }, []);
 
   // Available months & years derived from actual transaction data
@@ -61,11 +65,26 @@ export function DashboardPage() {
     return { from: filterFrom, to: filterTo };
   }, [filterMode, filterMonth, filterYear, filterFrom, filterTo]);
 
+  const unlinkedCount = useMemo(
+    () => transactions.filter((tx) => tx.accountId == null).length,
+    [transactions]
+  );
+
   // Transactions for the selected period
   const periodTxs = useMemo(() => {
-    if (filterMode === "custom" && (!filterFrom || !filterTo)) return transactions;
-    return transactions.filter((tx) => tx.date >= dateRange.from && tx.date <= dateRange.to);
-  }, [transactions, dateRange, filterMode, filterFrom, filterTo]);
+    const dateFiltered = (filterMode === "custom" && (!filterFrom || !filterTo))
+      ? transactions
+      : transactions.filter((tx) => tx.date >= dateRange.from && tx.date <= dateRange.to);
+
+    return dateFiltered.filter((tx) => {
+      if (filterAccount === "none") {
+        return tx.accountId == null;
+      } else if (filterAccount !== "all") {
+        return String(tx.accountId) === filterAccount;
+      }
+      return true;
+    });
+  }, [transactions, dateRange, filterMode, filterFrom, filterTo, filterAccount]);
 
   // Summary cards — always show total balance from ALL transactions
   const summary = useMemo(() => {
@@ -218,6 +237,19 @@ export function DashboardPage() {
                   className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
                 />
               </div>
+            </div>
+          )}
+
+          {/* Account selector */}
+          {accounts.length > 0 && (
+            <div className="space-y-1.5">
+              <label className="text-xs text-muted-foreground">Account</label>
+              <select value={filterAccount} onChange={(e) => setFilterAccount(e.target.value)}
+                className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary">
+                <option value="all">All accounts</option>
+                {accounts.map((a) => <option key={a.id} value={String(a.id)}>{a.icon} {a.name}</option>)}
+                {unlinkedCount > 0 && <option value="none">📋 Unlinked</option>}
+              </select>
             </div>
           )}
         </CardContent>

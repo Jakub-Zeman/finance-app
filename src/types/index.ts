@@ -1,5 +1,14 @@
 export type TransactionType = "income" | "expense";
 
+export interface Account {
+  id?: number;
+  name: string;
+  bank: string;
+  color: string;
+  icon: string;
+  currency: string;
+}
+
 export interface Category {
   id?: number;
   name: string;
@@ -13,6 +22,7 @@ export interface Transaction {
   amount: number;
   type: TransactionType;
   categoryId: number;
+  accountId?: number;
   description: string;
   date: string; // ISO date string YYYY-MM-DD
   tags: string[];

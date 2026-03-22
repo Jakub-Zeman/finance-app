@@ -2,6 +2,7 @@ import { useEffect, useState, useMemo } from "react";
 import { useLocation } from "react-router-dom";
 import { useTransactionStore } from "../../stores/useTransactionStore";
 import { useCategoryStore } from "../../stores/useCategoryStore";
+import { useAccountStore } from "../../stores/useAccountStore";
 import type { Transaction } from "../../types";
 import { formatCurrency, formatDate } from "../../lib/utils";
 import { Button } from "../ui/button";
@@ -17,6 +18,7 @@ export function TransactionsPage() {
   const location = useLocation();
   const { transactions, fetchTransactions, deleteTransaction, bulkDeleteTransactions, deleteAllTransactions } = useTransactionStore();
   const { categories, fetchCategories } = useCategoryStore();
+  const { accounts, fetchAccounts } = useAccountStore();
 
   const [formOpen, setFormOpen] = useState(false);
   const [csvOpen, setCsvOpen] = useState(false);
@@ -28,6 +30,9 @@ export function TransactionsPage() {
     location.state?.categoryId ? String(location.state.categoryId) : "all"
   );
   const [filterMonth, setFilterMonth] = useState<string>("all");
+  const [filterAccount, setFilterAccount] = useState<string>(
+    location.state?.accountId != null ? String(location.state.accountId) : "all"
+  );
   const [selected, setSelected] = useState<Set<number>>(new Set());
   const [confirmBulk, setConfirmBulk] = useState(false);
   const [confirmAll, setConfirmAll] = useState(false);
@@ -35,6 +40,7 @@ export function TransactionsPage() {
   useEffect(() => {
     fetchCategories();
     fetchTransactions();
+    fetchAccounts();
   }, []);
 
   // If navigation state passes a category, update filter
@@ -42,17 +48,25 @@ export function TransactionsPage() {
     if (location.state?.categoryId) {
       setFilterCategory(String(location.state.categoryId));
     }
+    if (location.state?.accountId != null) {
+      setFilterAccount(String(location.state.accountId));
+    }
   }, [location.state]);
 
   // Clear selection when filters change
   useEffect(() => {
     setSelected(new Set());
-  }, [search, filterType, filterCategory, filterMonth]);
+  }, [search, filterType, filterCategory, filterMonth, filterAccount]);
 
   const months = useMemo(() => {
     const set = new Set(transactions.map((tx) => tx.date.slice(0, 7)));
     return Array.from(set).sort().reverse();
   }, [transactions]);
+
+  const unlinkedCount = useMemo(
+    () => transactions.filter((tx) => tx.accountId == null).length,
+    [transactions]
+  );
 
   const filtered = useMemo(() => {
     return transactions.filter((tx) => {
@@ -61,9 +75,14 @@ export function TransactionsPage() {
       if (filterCategory !== "all" && String(tx.categoryId) !== filterCategory) return false;
       if (filterMonth !== "all" && !tx.date.startsWith(filterMonth)) return false;
       if (search && !tx.description.toLowerCase().includes(search.toLowerCase())) return false;
+      if (filterAccount === "none") {
+        if (tx.accountId != null) return false;
+      } else if (filterAccount !== "all") {
+        if (String(tx.accountId) !== filterAccount) return false;
+      }
       return true;
     });
-  }, [transactions, filterType, filterCategory, filterMonth, search]);
+  }, [transactions, filterType, filterCategory, filterMonth, search, filterAccount]);
 
   const totals = useMemo(() => {
     const income = filtered.filter((tx) => tx.type === "income").reduce((s, tx) => s + tx.amount, 0);
@@ -200,7 +219,52 @@ export function TransactionsPage() {
         </Select>
       </div>
 
-      {/* Filters row 2: category chips */}
+      {/* Filters row 2: account chips */}
+      {accounts.length > 0 && (
+        <div className="flex flex-wrap gap-2">
+          <button
+            onClick={() => setFilterAccount("all")}
+            className={`px-3 py-1 rounded-full text-xs font-medium border transition-colors ${
+              filterAccount === "all"
+                ? "bg-foreground text-background border-foreground"
+                : "bg-background border-input hover:bg-accent"
+            }`}
+          >
+            All accounts
+          </button>
+          {accounts.map((account) => {
+            const active = filterAccount === String(account.id);
+            return (
+              <button
+                key={account.id}
+                onClick={() => setFilterAccount(active ? "all" : String(account.id))}
+                className="px-3 py-1 rounded-full text-xs font-medium border transition-all"
+                style={
+                  active
+                    ? { backgroundColor: account.color, borderColor: account.color, color: "#fff" }
+                    : { backgroundColor: "transparent", borderColor: "#e2e8f0", color: "inherit" }
+                }
+              >
+                {account.icon} {account.name}
+              </button>
+            );
+          })}
+          {unlinkedCount > 0 && (
+            <button
+              onClick={() => setFilterAccount(filterAccount === "none" ? "all" : "none")}
+              className={`px-3 py-1 rounded-full text-xs font-medium border transition-colors ${
+                filterAccount === "none"
+                  ? "bg-foreground text-background border-foreground"
+                  : "bg-background border-input hover:bg-accent"
+              }`}
+            >
+              📋 Unlinked
+            </button>
+          )}
+        </div>
+      )}
+
+      {/* Filters row 3: category chips */}
       <div className="flex flex-wrap gap-2">
         <button
           onClick={() => setFilterCategory("all")}

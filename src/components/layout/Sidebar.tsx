@@ -8,6 +8,7 @@ import {
   ChevronLeft,
   ChevronRight,
   X,
+  Wallet,
 } from "lucide-react";
 import { cn } from "../../lib/utils";
 
@@ -16,6 +17,7 @@ const navItems = [
   { to: "/transactions", icon: ArrowLeftRight,  label: "Transactions" },
   { to: "/budgets",      icon: Target,          label: "Budgets"      },
   { to: "/categories",   icon: Tags,            label: "Categories"   },
+  { to: "/accounts",     icon: Wallet,          label: "Accounts"     },
 ];
 
 interface Props {

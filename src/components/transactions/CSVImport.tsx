@@ -2,6 +2,7 @@ import { useState, useRef } from "react";
 import Papa from "papaparse";
 import { useCategoryStore } from "../../stores/useCategoryStore";
 import { useTransactionStore } from "../../stores/useTransactionStore";
+import { useAccountStore } from "../../stores/useAccountStore";
 import { db } from "../../db/database";
 import {
   parseRevolutCSV,
@@ -35,6 +36,7 @@ const FALLBACK_CATEGORIES = ["Other Expense", "Other Income"];
 export function CSVImport({ open, onClose }: Props) {
   const { categories } = useCategoryStore();
   const { bulkAddTransactions } = useTransactionStore();
+  const { accounts } = useAccountStore();
 
   const [parsed, setParsed] = useState<ParsedRow[]>([]);
   const [detectedFormat, setDetectedFormat] = useState("");
@@ -44,6 +46,7 @@ export function CSVImport({ open, onClose }: Props) {
   const [categoryOverrides, setCategoryOverrides] = useState<Record<number, number>>({});
   // indices of items the user wants to "remember" as a rule
   const [rememberSet, setRememberSet] = useState<Set<number>>(new Set());
+  const [selectedAccountId, setSelectedAccountId] = useState<number | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
 
   const toImport = parsed.filter((p) => !p.skipped);
@@ -166,6 +169,7 @@ export function CSVImport({ open, onClose }: Props) {
     const transactions: Omit<Transaction, "id">[] = toImport.map((p, i) => ({
       ...p.transaction,
       categoryId: categoryOverrides[i] ?? p.transaction.categoryId,
+      accountId: selectedAccountId ?? undefined,
     }));
 
     await bulkAddTransactions(transactions);
@@ -179,6 +183,7 @@ export function CSVImport({ open, onClose }: Props) {
     setErrorMsg("");
     setCategoryOverrides({});
     setRememberSet(new Set());
+    setSelectedAccountId(null);
     if (fileRef.current) fileRef.current.value = "";
     onClose();
   }
@@ -186,6 +191,7 @@ export function CSVImport({ open, onClose }: Props) {
   function resetFile() {
     setStep("upload");
     setParsed([]);
+    setSelectedAccountId(null);
     if (fileRef.current) fileRef.current.value = "";
   }
 
@@ -227,6 +233,17 @@ export function CSVImport({ open, onClose }: Props) {
           {/* ── UPLOAD ── */}
           {step === "upload" && (
             <>
+              <div className="space-y-1.5">
+                <label className="text-xs font-medium text-muted-foreground">Import to account (optional)</label>
+                <select value={selectedAccountId ?? ""} onChange={(e) => setSelectedAccountId(e.target.value ? Number(e.target.value) : null)}
+                  className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary">
+                  <option value="">No account (import without linking)</option>
+                  {accounts.map((a) => <option key={a.id} value={a.id}>{a.icon} {a.name}</option>)}
+                </select>
+                {accounts.length === 0 && (
+                  <p className="text-xs text-muted-foreground">No accounts yet. Create one in the Accounts page to link imports.</p>
+                )}
+              </div>
               <div className="grid grid-cols-2 gap-2">
                 <div className="flex items-start gap-2 p-3 bg-blue-50 border border-blue-200 rounded-lg text-sm">
                   <Info className="h-4 w-4 text-blue-500 mt-0.5 shrink-0" />

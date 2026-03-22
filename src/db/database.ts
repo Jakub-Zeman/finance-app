@@ -1,11 +1,12 @@
 import Dexie, { type Table } from "dexie";
-import type { Category, Transaction, Budget, CategoryRule } from "../types";
+import type { Account, Category, Transaction, Budget, CategoryRule } from "../types";
 
 export class FinanceDatabase extends Dexie {
   transactions!: Table<Transaction>;
   categories!: Table<Category>;
   budgets!: Table<Budget>;
   categoryRules!: Table<CategoryRule>;
+  accounts!: Table<Account>;
 
   constructor() {
     super("FinanceDB");
@@ -19,6 +20,13 @@ export class FinanceDatabase extends Dexie {
       categories: "++id, name, type",
       budgets: "++id, categoryId, month",
       categoryRules: "++id, pattern",
+    });
+    this.version(3).stores({
+      transactions: "++id, type, categoryId, date, accountId",
+      categories: "++id, name, type",
+      budgets: "++id, categoryId, month",
+      categoryRules: "++id, pattern",
+      accounts: "++id, name",
     });
   }
 }

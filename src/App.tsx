@@ -4,6 +4,7 @@ import { DashboardPage } from "./components/dashboard/DashboardPage";
 import { TransactionsPage } from "./components/transactions/TransactionsPage";
 import { BudgetsPage } from "./components/budgets/BudgetsPage";
 import { CategoriesPage } from "./components/categories/CategoriesPage";
+import { AccountsPage } from "./components/accounts/AccountsPage";
 
 export default function App() {
   return (
@@ -14,6 +15,7 @@ export default function App() {
           <Route path="transactions" element={<TransactionsPage />} />
           <Route path="budgets" element={<BudgetsPage />} />
           <Route path="categories" element={<CategoriesPage />} />
+          <Route path="accounts" element={<AccountsPage />} />
         </Route>
       </Routes>
     </BrowserRouter>
